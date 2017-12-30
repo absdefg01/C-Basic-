@@ -1,0 +1,247 @@
+
+/* synchronisation des threads sous Linux */
+/* compilation du programme:     */
+/*   gcc proc1.c -o proc -lpthread  */
+
+/* exercice 1 */ 
+/* essai d'un mutex standard avec plusiers threads*/
+
+# include <stdlib.h>
+# include <unistd.h>
+# include <pthread.h> 
+# include <stdio.h>
+# include <string.h>
+
+# define NB_THREADS 4
+
+void * traitThread(void *);
+void entrerNombre(int n, char * mess, int * nb);
+
+/* variables globales */
+
+pthread_mutex_t verrou = PTHREAD_MUTEX_INITIALIZER;
+
+/* code du main thread */
+int main(void)
+{
+int i, err;
+pthread_t TID[NB_THREADS +1];
+
+/* main thread */
+
+/* creation des threads */
+
+for (i=1; i <= NB_THREADS; i++)
+{
+  err = pthread_create(& TID[i], NULL, traitThread, (void *)i) ;
+  if (err != 0)
+     { perror("echec pthread_create");exit(1); }
+}    
+    
+/* suite du main thread */
+/* attente de la terminaison des threads */
+
+for (i=1; i <= NB_THREADS; i++)
+{
+    err=pthread_join( TID[i], NULL); 
+    if (err != 0 )
+    { perror("echec join");}
+    else
+    { printf("\nTerminaison du thread%d\n",i);}
+}
+       
+/* fin du main thread */
+pthread_exit(NULL);
+}
+
+/* traitement commun aux threads */
+void * traitThread(void *num)
+{
+int n;
+int marqueur, valeur;
+int cumul;
+
+n=(int)num;
+pthread_mutex_lock(& verrou);
+printf("***thread%d --> TID= %d\n", n, pthread_self());
+pthread_mutex_unlock(& verrou);
+sleep(1);
+cumul=0;
+entrerNombre(n, "entrer le marqueur: ", & marqueur);
+entrerNombre(n, "entrer un nombre ou le marqueur: ", & valeur);
+while (valeur != marqueur)
+{
+cumul=cumul + valeur;
+entrerNombre(n, "entrer un nombre ou le marqueur: ", & valeur);
+sleep(2*n);
+}
+pthread_mutex_lock(& verrou);
+printf("***thread%d --> cumul= %d\n", n, cumul);
+pthread_mutex_unlock(& verrou);
+
+pthread_exit(NULL);
+}
+
+void entrerNombre(int n, char * mess, int * nb)
+{
+char tampon[256];
+
+pthread_mutex_lock(& verrou);
+printf("***thread%d --> %s",n, mess);
+fgets(tampon, 256, stdin);
+pthread_mutex_unlock(& verrou);
+
+* nb=atoi(tampon);
+sleep(1);
+}
+
+
+/* synchronisation des threads sous Linux */
+/* compilation du programme:     */
+/*   gcc proc1.c -o proc  -lpthread  */
+
+/* exercice 2 */ 
+/* essai de tableaux de mutex */
+
+# include <stdlib.h>
+# include <unistd.h>
+# include <pthread.h> 
+# include <stdio.h>
+# include <string.h>
+
+# define NB_TH 4
+# define NB_ETU 10
+
+typedef enum {FAUX=0, VRAI=1} boolean;
+
+void * traitThread(void *);
+void chargerNotes(const char * nomFic,const int nbLig, const int nbCol);
+
+/* variables globales */
+
+int nbEtu= NB_ETU; 
+int nbNotes= NB_TH;
+
+float tabNotes[NB_ETU] [NB_TH];;
+float tabMoy[NB_TH];;
+
+pthread_mutex_t mutexInit = PTHREAD_MUTEX_INITIALIZER;
+
+pthread_mutex_t mutex[NB_TH];
+
+boolean fini[NB_TH];
+
+/* code du main thread */
+int main(int nbParam, char * param[] )
+{
+int i;
+int err;
+pthread_t TID[NB_TH],toto ;
+int l, c;
+float total;
+int cpt=NB_TH;
+
+/* creation et chargement du tableau des notes */
+chargerNotes(param[1], nbEtu, nbNotes );
+
+printf ("nbEtu= %d , nbNotes= %d \n", nbEtu, nbNotes );
+
+for (l=0; l < nbEtu; l++)
+ {
+   for (c=0; c < nbNotes; c++)
+    { printf("%f  ", tabNotes[l][c]);}
+    printf("\n");
+ }
+ 
+/* initialisation des variables de synchronisation  */
+for (i=0; i < NB_TH; i++)
+{
+  mutex[i]= mutexInit;;
+  fini[i]= FAUX;
+}
+printf("initialisation des variables de synchronisation OK\n");
+/* creation des threads */
+for (i=0; i < NB_TH; i++)
+{
+err = pthread_create(& TID[i], NULL, traitThread, (void *)i) ;
+if (err != 0)
+    { perror("echec pthread_create");exit(1); }
+}   
+printf("creation des threads OK\n");
+/* attente de la terminaison des threads */
+while (cpt > 0)
+{
+  for (i=0; i < NB_TH; i++)
+  {
+    if (fini[i] == FAUX )
+    {
+       err=pthread_mutex_trylock(& mutex[i]);
+       if (err == 0)
+       {
+         fini[i]=VRAI;
+         pthread_mutex_unlock(& mutex[i]);
+         cpt --;
+       }
+    }
+     
+  }
+}
+
+/* affichage des resultats  */
+
+for (c=0; c < nbNotes; c++)
+  { printf("%f  ", tabMoy[c]);}
+printf("\n");
+
+total=0.0;
+for (i=0; i < NB_TH; i++)
+ {
+   total = total + tabMoy[i];
+ }   
+printf("%f  \n", total/nbNotes);   
+    
+/* fin du main thread */
+pthread_exit(NULL);
+}
+
+/* traitement commun des threads */
+void * traitThread(void *col)
+{
+int i, j;
+float cumul;
+pthread_t TID;
+j=(int)col;
+
+pthread_mutex_lock(& mutex[j]);
+TID=pthread_self();
+pthread_detach(TID);
+
+printf("***thread%d --> TID= %d\n", j,TID);
+cumul=0.0;
+for (i=0; i < nbEtu; i++)
+{
+  cumul=cumul + tabNotes[i][j];
+}
+tabMoy[j] = cumul / nbEtu;
+pthread_mutex_unlock(& mutex[j]);
+
+}
+
+void chargerNotes(const char * nomFic, const int nbLig, const int nbCol)
+{
+int l, c;
+FILE * fic;
+
+fic = fopen(nomFic, "r");
+for (l=0; l < nbLig; l++)
+ {
+   for (c=0; c < nbCol; c++)
+    { fscanf(fic,"%f", & tabNotes[l][c]);}
+ }
+}
+
+
+
+
+
+
